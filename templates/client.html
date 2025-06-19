@@ -1,0 +1,216 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Client - Ký tài liệu</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .step {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            background: #f8f9fa;
+        }
+        .step.active {
+            border-color: #007bff;
+            background: #e3f2fd;
+        }
+        .step.completed {
+            border-color: #28a745;
+            background: #d4edda;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .file-input {
+            margin: 10px 0;
+            padding: 10px;
+            border: 2px dashed #dee2e6;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .key-display {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 150px;
+            overflow-y: auto;
+            word-break: break-all;
+        }
+    </style>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>👤 Client - Ký tài liệu</h1>
+        <p>Thực hiện quy trình ký số cho tài liệu</p>
+
+        <div class="step" id="step1">
+            <h3>Bước 1: Tạo cặp khóa</h3>
+            <button id="generateKeysBtn">🔑 Tạo Khóa RSA</button>
+            <div id="keysStatus"></div>
+            <div id="publicKeyDisplay" style="display: none;">
+                <h4>Public Key:</h4>
+                <div class="key-display" id="publicKey"></div>
+            </div>
+        </div>
+
+        <div class="step" id="step2">
+            <h3>Bước 2: Chọn file để ký</h3>
+            <div class="file-input">
+                <input type="file" id="fileInput" accept=".txt,.pdf,.jpg,.jpeg,.png,.mp4,.avi,.mov" />
+                <p>Hỗ trợ: .txt, .pdf, .jpg, .mp4, ...</p>
+            </div>
+            <div id="fileStatus"></div>
+            <div id="hashDisplay" style="display: none;">
+                <h4>Hash của file:</h4>
+                <div class="key-display" id="fileHash"></div>
+            </div>
+        </div>
+
+        <div class="step" id="step3">
+            <h3>Bước 3: Ký dữ liệu</h3>
+            <button id="signBtn" disabled>✍️ Ký Hash</button>
+            <div id="signStatus"></div>
+            <div id="signatureDisplay" style="display: none;">
+                <h4>Chữ ký số:</h4>
+                <div class="key-display" id="signature"></div>
+            </div>
+        </div>
+
+        <div id="connectionStatus" class="status">
+            Đang kết nối...
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let keysGenerated = false;
+        let fileUploaded = false;
+
+        // Kết nối socket
+        socket.on('connect', function() {
+            document.getElementById('connectionStatus').innerHTML = '✅ Đã kết nối đến server';
+            document.getElementById('connectionStatus').className = 'status success';
+            socket.emit('join_room', {room: 'client'});
+        });
+
+        socket.on('disconnect', function() {
+            document.getElementById('connectionStatus').innerHTML = '❌ Mất kết nối';
+            document.getElementById('connectionStatus').className = 'status error';
+        });
+
+        // Tạo khóa
+        document.getElementById('generateKeysBtn').addEventListener('click', function() {
+            socket.emit('generate_keys');
+        });
+
+        socket.on('keys_generated', function(data) {
+            keysGenerated = true;
+            document.getElementById('step1').className = 'step completed';
+            document.getElementById('keysStatus').innerHTML = '<div class="status success">✅ Đã tạo cặp khóa thành công</div>';
+            document.getElementById('publicKeyDisplay').style.display = 'block';
+            document.getElementById('publicKey').textContent = data.public_key;
+            updateStepStatus();
+        });
+
+        // Upload file
+        document.getElementById('fileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    socket.emit('upload_file', {
+                        file_data: e.target.result,
+                        filename: file.name
+                    });
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        socket.on('file_uploaded', function(data) {
+            fileUploaded = true;
+            document.getElementById('step2').className = 'step completed';
+            document.getElementById('fileStatus').innerHTML = `<div class="status success">✅ Đã upload: ${data.filename}</div>`;
+            document.getElementById('hashDisplay').style.display = 'block';
+            document.getElementById('fileHash').textContent = data.hash;
+            updateStepStatus();
+        });
+
+        // Ký dữ liệu
+        document.getElementById('signBtn').addEventListener('click', function() {
+            socket.emit('sign_data');
+        });
+
+        socket.on('data_signed', function(data) {
+            document.getElementById('step3').className = 'step completed';
+            document.getElementById('signStatus').innerHTML = '<div class="status success">✅ Đã ký thành công! Dữ liệu đã gửi đến Server.</div>';
+            document.getElementById('signatureDisplay').style.display = 'block';
+            document.getElementById('signature').textContent = data.signature;
+        });
+
+        // Xử lý lỗi
+        socket.on('error', function(data) {
+            alert('Lỗi: ' + data.message);
+        });
+
+        function updateStepStatus() {
+            if (keysGenerated && !fileUploaded) {
+                document.getElementById('step2').className = 'step active';
+            }
+            
+            if (keysGenerated && fileUploaded) {
+                document.getElementById('step3').className = 'step active';
+                document.getElementById('signBtn').disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
